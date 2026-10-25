@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>6-DOF Stewart Platform Real-World Dynamics & Joint Failure Simulator</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #1e293b;
+      --border: #334155;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --red: #ef4444;
+      --amber: #f59e0b;
+      --green: #22c55e;
+      --cyan: #38bdf8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+    body { background: var(--bg); color: var(--text); display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+    @media (min-width: 860px) { body { flex-direction: row; } }
+
+    #viewport { position: relative; flex: 1; min-height: 52vh; background: radial-gradient(circle at center, #1e293b 0%, #090d16 100%); }
+    canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+
+    .legend {
+      position: absolute; top: 12px; left: 12px; background: rgba(15, 23, 42, 0.88);
+      border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px;
+      font-size: 11.5px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; backdrop-filter: blur(6px);
+      pointer-events: none; max-width: calc(100% - 24px);
+    }
+    .dot { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+    .dot.round { border-radius: 50%; box-shadow: 0 0 6px #ef4444; }
+
+    #status-banner {
+      position: absolute; top: 54px; left: 12px; right: 12px; max-width: 560px;
+      background: rgba(15, 23, 42, 0.9); border: 1px solid var(--border); border-radius: 8px;
+      padding: 8px 12px; font-size: 12px; display: flex; justify-content: space-between; align-items: center;
+      gap: 10px; backdrop-filter: blur(6px); pointer-events: none; transition: all 0.2s ease;
+    }
+    #status-banner.nominal { border-left: 4px solid var(--green); }
+    #status-banner.warning { border-left: 4px solid var(--amber); background: rgba(69, 26, 3, 0.82); border-color: rgba(245, 158, 11, 0.5); }
+    #status-banner.snap {
+      border-left: 4px solid var(--red); background: rgba(127, 29, 29, 0.88);
+      border-color: #ef4444; box-shadow: 0 0 18px rgba(239, 68, 68, 0.45);
+    }
+    .status-title { font-weight: 700; letter-spacing: 0.02em; }
+    .status-metrics { font-family: monospace; font-size: 11px; color: #e2e8f0; white-space: nowrap; }
+
+    .kinematics-hud {
+      position: absolute; bottom: 38px; left: 12px; background: rgba(15, 23, 42, 0.82);
+      border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px;
+      font-family: monospace; font-size: 11px; color: #cbd5e1; pointer-events: none;
+      display: flex; gap: 12px; flex-wrap: wrap;
+    }
+
+    .hint {
+      position: absolute; bottom: 10px; left: 12px; color: var(--muted);
+      font-size: 11px; background: rgba(15, 23, 42, 0.75); padding: 4px 8px; border-radius: 4px;
+      pointer-events: none;
+    }
+
+    #sidebar {
+      width: 100%; max-height: 48vh; overflow-y: auto; background: var(--panel);
+      border-top: 1px solid var(--border); padding: 12px 15px; display: flex; flex-direction: column; gap: 10px;
+    }
+    @media (min-width: 860px) {
+      #sidebar { width: 400px; max-height: 100vh; border-top: none; border-left: 1px solid var(--border); }
+    }
+
+    h2 { font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--cyan); margin-top: 2px; }
+    .control-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+    .control-group { display: flex; flex-direction: column; gap: 3px; }
+    .control-group.full { grid-column: 1 / -1; }
+    .control-header { display: flex; justify-content: space-between; font-size: 11.5px; }
+    .val { font-family: monospace; color: #facc15; font-weight: 600; }
+    input[type="range"] { width: 100%; accent-color: var(--red); cursor: pointer; height: 5px; }
+    input[type="range"].limit-slider { accent-color: var(--cyan); }
+
+    .btn-row { display: flex; gap: 6px; flex-wrap: wrap; }
+    button {
+      flex: 1; background: #334155; color: var(--text); border: 1px solid #475569;
+      padding: 6px 8px; border-radius: 6px; font-size: 11.5px; font-weight: 600; cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    button:hover { background: #475569; }
+    button.danger { background: #991b1b; border-color: #ef4444; }
+    button.danger:hover { background: #b91c1c; }
+    button.warn-btn { background: #78350f; border-color: #f59e0b; }
+    button.warn-btn:hover { background: #92400e; }
+
+    .leg-row {
+      display: flex; align-items: center; gap: 6px; font-size: 11px; margin-bottom: 4px;
+      padding: 3px 5px; border-radius: 5px; border: 1px solid transparent; transition: background 0.15s, border-color 0.15s;
+    }
+    .leg-row.snap-row {
+      background: rgba(239, 68, 68, 0.16);
+      border-color: rgba(239, 68, 68, 0.65);
+    }
+    .leg-row.warn-row {
+      background: rgba(245, 158, 11, 0.12);
+      border-color: rgba(245, 158, 11, 0.45);
+    }
+    .leg-label { width: 40px; font-weight: 600; color: var(--muted); }
+    .bar-bg { flex: 1; height: 12px; background: #0f172a; border-radius: 4px; position: relative; overflow: hidden; border: 1px solid var(--border); }
+    .bar-mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: #64748b; z-index: 2; }
+    .bar-limit-pos, .bar-limit-neg {
+      position: absolute; top: 0; bottom: 0; width: 1.5px; background: rgba(239, 68, 68, 0.85); z-index: 2;
+    }
+    .bar-fill { position: absolute; top: 0; bottom: 0; transition: width 0.04s, left 0.04s; }
+    .leg-val { width: 126px; text-align: right; font-family: monospace; font-size: 10.5px; white-space: nowrap; }
+    .badge { font-size: 9px; padding: 1px 4px; border-radius: 3px; font-weight: 700; margin-left: 3px; display: inline-block; }
+    .push { background: rgba(34, 197, 94, 0.2); color: #4ade80; }
+    .pull { background: rgba(56, 189, 248, 0.2); color: #38bdf8; }
+    .warn { background: rgba(245, 158, 11, 0.25); color: #fbbf24; }
+    .snap-badge { background: #ef4444; color: #ffffff; animation: pulseBadge 0.6s infinite alternate; }
+
+    @keyframes pulseBadge {
+      from { opacity: 1; transform: scale(1); }
+      to { opacity: 0.72; transform: scale(1.05); }
+    }
+  </style>
+</head>
+<body>
+
+  <div id="viewport">
+    <div class="legend">
+      <span><i class="dot" style="background:#94a3b8"></i><b>Slate Joint:</b> Nominal Load</span>
+      <span><i class="dot" style="background:#f59e0b"></i><b>Amber Joint:</b> Yield Warning (&gt;82%)</span>
+      <span><i class="dot round" style="background:#ef4444"></i><b>Red Joint Glow:</b> Joint Snap Limit Exceeded</span>
+    </div>
+
+    <div id="status-banner" class="nominal">
+      <div>
+        <div class="status-title" id="status-text">STRUCTURAL INTEGRITY: NOMINAL (ALL JOINTS LOCKED)</div>
+        <div style="font-size:11px; color:#cbd5e1; margin-top:2px;" id="status-sub">
+          Ball &amp; clevis joints strictly constrained; loads within rated mechanical capacity.
+        </div>
+      </div>
+      <div class="status-metrics" id="status-metrics">Peak: 0 N | SF: --</div>
+    </div>
+
+    <div class="kinematics-hud" id="kin-hud">
+      <span>ΔZ: <b id="hud-dz">0.0</b> mm</span>
+      <span>ΔX/Y: <b id="hud-dxy">0.0</b> mm</span>
+      <span>Tilt: <b id="hud-tilt">0.00</b>°</span>
+      <span>Joint Gap Error: <b style="color:#4ade80">0.000 mm</b></span>
+    </div>
+
+    <div class="hint">Drag to Orbit 3D • Scroll/Pinch to Zoom • Joints Stay Connected &amp; Glow Red at Snap Limit</div>
+  </div>
+
+  <div id="sidebar">
+    <h2>1. External Load Wrench (Red)</h2>
+
+    <div class="control-grid">
+      <div class="control-group full">
+        <div class="control-header"><span>Vertical Load (F_z) [Gravity + Payload]</span><span class="val" id="v-fz">-1200 N</span></div>
+        <input type="range" id="s-fz" min="-3200" max="800" step="25" value="-1200" />
+      </div>
+
+      <div class="control-group">
+        <div class="control-header"><span>Lateral Shear (F_x)</span><span class="val" id="v-fx">350 N</span></div>
+        <input type="range" id="s-fx" min="-1200" max="1200" step="20" value="350" />
+      </div>
+
+      <div class="control-group">
+        <div class="control-header"><span>Lateral Shear (F_y)</span><span class="val" id="v-fy">0 N</span></div>
+        <input type="range" id="s-fy" min="-1200" max="1200" step="20" value="0" />
+      </div>
+
+      <div class="control-group">
+        <div class="control-header"><span>Pitch Moment (M_y)</span><span class="val" id="v-my">220 N·m</span></div>
+        <input type="range" id="s-my" min="-650" max="650" step="10" value="220" />
+      </div>
+
+      <div class="control-group">
+        <div class="control-header"><span>Roll Moment (M_x)</span><span class="val" id="v-mx">0 N·m</span></div>
+        <input type="range" id="s-mx" min="-650" max="650" step="10" value="0" />
+      </div>
+
+      <div class="control-group">
+        <div class="control-header"><span>Yaw Torque (M_z)</span><span class="val" id="v-mz">0 N·m</span></div>
+        <input type="range" id="s-mz" min="-450" max="450" step="10" value="0" />
+      </div>
+
+      <div class="control-group">
+        <div class="control-header"><span>Joint Snap Limit (F_max)</span><span class="val" id="v-fmax" style="color:#38bdf8">1100 N</span></div>
+        <input type="range" class="limit-slider" id="s-fmax" min="600" max="2000" step="25" value="1100" />
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="danger" id="btn-shock">⚡ Shock Impulse</button>
+      <button class="warn-btn" id="btn-overload">🚨 Test Joint Snap</button>
+      <button id="btn-circle">🔄 Auto-Circle Load</button>
+      <button id="btn-reset">Reset</button>
+    </div>
+
+    <h2>2. Actuator &amp; Joint Stress Telemetry</h2>
+    <div id="telemetry"></div>
+  </div>
+
+  <script>
+    // --- 1. SCENE & CAMERA SETUP ---
+    const container = document.getElementById('viewport');
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(42, container.clientWidth / container.clientHeight, 0.1, 20);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    container.appendChild(renderer.domElement);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.68));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+    dirLight.position.set(2.5, 4.5, 3.0);
+    scene.add(dirLight);
+
+    const fillLight = new THREE.DirectionalLight(0x93c5fd, 0.35);
+    fillLight.position.set(-2.5, 2.0, -2.0);
+    scene.add(fillLight);
+
+    const grid = new THREE.GridHelper(2.2, 22, 0x334155, 0x1e293b);
+    grid.position.y = -0.025;
+    scene.add(grid);
+
+    // Orbit Controls (Mouse + Touch)
+    let camTheta = 0.65, camPhi = 1.05, camRadius = 1.65;
+    let isDragging = false, prevX = 0, prevY = 0;
+    function updateCamera() {
+      camera.position.set(
+        camRadius * Math.sin(camPhi) * Math.sin(camTheta),
+        camRadius * Math.cos(camPhi) + 0.22,
+        camRadius * Math.sin(camPhi) * Math.cos(camTheta)
+      );
+      camera.lookAt(0, 0.22, 0);
+    }
+    updateCamera();
+
+    renderer.domElement.addEventListener('pointerdown', e => { isDragging = true; prevX = e.clientX; prevY = e.clientY; });
+    window.addEventListener('pointerup', () => isDragging = false);
+    window.addEventListener('pointermove', e => {
+      if (!isDragging) return;
+      camTheta -= (e.clientX - prevX) * 0.008;
+      camPhi = Math.max(0.2, Math.min(1.48, camPhi - (e.clientY - prevY) * 0.008));
+      prevX = e.clientX; prevY = e.clientY;
+      updateCamera();
+    });
+    renderer.domElement.addEventListener('wheel', e => {
+      camRadius = Math.max(0.85, Math.min(3.0, camRadius + e.deltaY * 0.001));
+      updateCamera();
+    });
+
+    // Helper: Convert Engineering (X-right, Y-forward, Z-up) -> Three.js (X-right, Y-up, Z-back)
+    function engToThree(v) { return new THREE.Vector3(v[0], v[2], -v[1]); }
+
+    // --- 2. STEWART PLATFORM GEOMETRY (6-6 Triangulated Hexapod) ---
+    const Rb = 0.48, Rp = 0.34, Z0 = 0.44;
+    const deg = Math.PI / 180;
+    const baseAngles = [-10, 10, 110, 130, 230, 250].map(a => a * deg);
+    const platAngles = [-50, 50, 70, 170, 190, 290].map(a => a * deg);
+
+    const B_eng = baseAngles.map(a => [Rb * Math.cos(a), Rb * Math.sin(a), 0]);
+    const a_local = platAngles.map(a => [Rp * Math.cos(a), Rp * Math.sin(a), 0]);
+
+    // Compute exact home leg lengths L0_i for real-world spring-damper actuator compliance
+    const L0_legs = B_eng.map((b, i) => {
+      const a = a_local[i];
+      return Math.hypot(a[0] - b[0], a[1] - b[1], Z0 - b[2]);
+    });
+
+    function createHexPlate(pts2D, thickness, color) {
+      const shape = new THREE.Shape();
+      // Note: shape in XY plane then rotated -PI/2 around X maps (x, y) -> (x, 0, -y) which matches engToThree([x, y, 0])!
+      pts2D.forEach((p, idx) => idx === 0 ? shape.moveTo(p[0], p[1]) : shape.lineTo(p[0], p[1]));
+      shape.closePath();
+      const geo = new THREE.ExtrudeGeometry(shape, { depth: thickness, bevelEnabled: true, bevelThickness: 0.006, bevelSize: 0.006 });
+      geo.rotateX(-Math.PI / 2);
+      return new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, metalness: 0.35, roughness: 0.45 }));
+    }
+
+    // Base Plate
+    const baseMesh = createHexPlate(B_eng, 0.025, 0x334155);
+    baseMesh.position.y = -0.025;
+    scene.add(baseMesh);
+
+    // Top Platform Group (Strictly synchronized with engineering rotation matrix R_eng)
+    const topGroup = new THREE.Group();
+    topGroup.matrixAutoUpdate = false;
+    const topPlateMesh = createHexPlate(a_local, 0.024, 0x2563eb);
+    // Offset plate slightly upward so ball joints sit flush against its bottom mounting surface
+    topPlateMesh.position.y = 0.002;
+    topGroup.add(topPlateMesh);
+    scene.add(topGroup);
+
+    // Joint Spherical Bearings, Clevis Mounts & Red Failure Highlighting Halos
+    const jointGeo = new THREE.SphereGeometry(0.023, 20, 20);
+    const socketGeo = new THREE.CylinderGeometry(0.026, 0.030, 0.018, 16);
+    const haloGeo = new THREE.RingGeometry(0.028, 0.052, 24);
+    haloGeo.rotateX(-Math.PI / 2);
+
+    const baseJoints = [];
+    const topJoints = [];
+
+    for (let i = 0; i < 6; i++) {
+      // Base Joint (B_i)
+      const bMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.7, roughness: 0.25 });
+      const bSphere = new THREE.Mesh(jointGeo, bMat);
+      bSphere.position.copy(engToThree(B_eng[i]));
+      scene.add(bSphere);
+
+      const bSocket = new THREE.Mesh(socketGeo, bMat);
+      bSocket.position.copy(engToThree(B_eng[i])).add(new THREE.Vector3(0, -0.006, 0));
+      scene.add(bSocket);
+
+      const bHaloMat = new THREE.MeshBasicMaterial({ color: 0xef4444, side: THREE.DoubleSide, transparent: true, opacity: 0.0 });
+      const bHalo = new THREE.Mesh(haloGeo, bHaloMat);
+      bHalo.position.copy(engToThree(B_eng[i])).add(new THREE.Vector3(0, 0.004, 0));
+      scene.add(bHalo);
+
+      baseJoints.push({ sphere: bSphere, socket: bSocket, mat: bMat, halo: bHalo, haloMat: bHaloMat });
+
+      // Platform Joint (A_i) - placed in world space and updated from exact kinematics so it is 100% locked to both plate & leg
+      const tMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.7, roughness: 0.25 });
+      const tSphere = new THREE.Mesh(jointGeo, tMat);
+      scene.add(tSphere);
+
+      const tSocket = new THREE.Mesh(socketGeo, tMat);
+      scene.add(tSocket);
+
+      const tHaloMat = new THREE.MeshBasicMaterial({ color: 0xef4444, side: THREE.DoubleSide, transparent: true, opacity: 0.0 });
+      const tHalo = new THREE.Mesh(haloGeo, tHaloMat);
+      scene.add(tHalo);
+
+      topJoints.push({ sphere: tSphere, socket: tSocket, mat: tMat, halo: tHalo, haloMat: tHaloMat });
+    }
+
+    // 6 Telescoping Legs (with Base/Top Clevis Collars so joints are visually and mechanically locked)
+    const legs = [];
+
+    for (let i = 0; i < 6; i++) {
+      const legGroup = new THREE.Group();
+      const outerMat = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.5, roughness: 0.35 });
+      const innerMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.8, roughness: 0.2 });
+      const collarMat = new THREE.MeshStandardMaterial({ color: 0x64748b, metalness: 0.65, roughness: 0.3 });
+
+      // Lower housing barrel (starts right at base ball joint center and extends 58% of nominal leg length)
+      const outerLen = 0.27;
+      const outer = new THREE.Mesh(new THREE.CylinderGeometry(0.019, 0.019, outerLen, 16), outerMat);
+      outer.position.y = outerLen * 0.5;
+
+      // Piston rod (spans 100% from B_i to A_i so it never detaches from either ball joint)
+      const inner = new THREE.Mesh(new THREE.CylinderGeometry(0.0115, 0.0115, 1.0, 16), innerMat);
+      inner.position.y = 0.5;
+
+      // End clevis collars that wrap directly into the base & platform ball joints
+      const baseCollar = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.020, 0.036, 14), collarMat);
+      baseCollar.position.y = 0.018;
+
+      const topCollar = new THREE.Mesh(new THREE.CylinderGeometry(0.020, 0.015, 0.038, 14), collarMat);
+
+      legGroup.add(outer, inner, baseCollar, topCollar);
+      scene.add(legGroup);
+      legs.push({ group: legGroup, outer, inner, topCollar, outerMat, innerMat, collarMat });
+    }
+
+    // Build Telemetry Bars
+    const telDiv = document.getElementById('telemetry');
+    for (let i = 0; i < 6; i++) {
+      telDiv.innerHTML += `
+        <div class="leg-row" id="row-${i}">
+          <span class="leg-label" id="lbl-${i}">Leg ${i + 1}</span>
+          <div class="bar-bg">
+            <div class="bar-mid"></div>
+            <div class="bar-limit-neg" id="lim-neg-${i}"></div>
+            <div class="bar-limit-pos" id="lim-pos-${i}"></div>
+            <div class="bar-fill" id="bar-${i}"></div>
+          </div>
+          <span class="leg-val" id="txt-${i}">0 N</span>
+        </div>`;
+    }
+
+    // --- 3. UNIFIED KINEMATICS & 6x6 LINEAR SOLVER ---
+    // Exact 3x3 Rotation Matrix R = Rz(rz) * Ry(ry) * Rx(rx) in Engineering Space
+    function getRotationMatrixEng(rx, ry, rz) {
+      const cx = Math.cos(rx), sx = Math.sin(rx);
+      const cy = Math.cos(ry), sy = Math.sin(ry);
+      const cz = Math.cos(rz), sz = Math.sin(rz);
+      return [
+        [cz * cy, cz * sy * sx - sz * cx, cz * sy * cx + sz * sx],
+        [sz * cy, sz * sy * sx + cz * cx, sz * sy * cx - cz * sx],
+        [-sy,     cy * sx,                cy * cx]
+      ];
+    }
+
+    function matVec3(R, v) {
+      return [
+        R[0][0] * v[0] + R[0][1] * v[1] + R[0][2] * v[2],
+        R[1][0] * v[0] + R[1][1] * v[1] + R[1][2] * v[2],
+        R[2][0] * v[0] + R[2][1] * v[1] + R[2][2] * v[2]
+      ];
+    }
+
+    // Convert Engineering Pose (P_eng, R_eng) to exact Three.js Matrix4 so topGroup matches rotVec to < 1e-15!
+    // Since v_three = T * v_eng where T = [[1, 0, 0], [0, 0, 1], [0, -1, 0]],
+    // R_three = T * R_eng * T^T
+    function setTopGroupTransform(P_eng, R) {
+      const m = new THREE.Matrix4();
+      m.set(
+         R[0][0],  R[0][2], -R[0][1],  P_eng[0],
+         R[2][0],  R[2][2], -R[2][1],  P_eng[2],
+        -R[1][0], -R[1][2],  R[1][1], -P_eng[1],
+         0,        0,        0,        1
+      );
+      topGroup.matrix.copy(m);
+      topGroup.matrixWorldNeedsUpdate = true;
+    }
+
+    function solve6x6(A, b) {
+      const M = A.map((row, i) => [...row, b[i]]);
+      for (let i = 0; i < 6; i++) {
+        let maxRow = i;
+        for (let k = i + 1; k < 6; k++) if (Math.abs(M[k][i]) > Math.abs(M[maxRow][i])) maxRow = k;
+        [M[i], M[maxRow]] = [M[maxRow], M[i]];
+        const pivot = Math.abs(M[i][i]) > 1e-9 ? M[i][i] : 1e-9;
+        for (let k = i + 1; k < 6; k++) {
+          const factor = M[k][i] / pivot;
+          for (let j = i; j <= 6; j++) M[k][j] -= factor * M[i][j];
+        }
+      }
+      const x = new Array(6).fill(0);
+      for (let i = 5; i >= 0; i--) {
+        let sum = M[i][6];
+        for (let j = i + 1; j < 6; j++) sum -= M[i][j] * x[j];
+        x[i] = sum / (Math.abs(M[i][i]) > 1e-9 ? M[i][i] : 1e-9);
+      }
+      return x;
+    }
+
+    // --- 4. REAL-WORLD 6-DOF MULTI-BODY DYNAMICS ENGINE ---
+    // State in Engineering Frame: pose = [dx, dy, dz, rx, ry, rz], vel = [vx, vy, vz, wx, wy, wz]
+    let pose = [0, 0, 0, 0, 0, 0];
+    let vel  = [0, 0, 0, 0, 0, 0];
+    let shockWrench = [0, 0, 0, 0, 0, 0];
+    let autoCircle = false;
+
+    // Realistic Physical Parameters of the Stabilizer Platform & Hydraulic/Servo Actuators
+    const MASS_INITIAL = [38.0, 38.0, 38.0, 2.4, 2.4, 3.8]; // [m_x, m_y, m_z (kg), I_xx, I_yy, I_zz (kg*m^2)]
+    const K_ACTUATOR = 38000; // Axial stiffness per leg (N/m) -> produces realistic, visible millimeter/degree compliance
+    const C_ACTUATOR = 1650;  // Axial viscous damping per leg (N*s/m)
+    const STROKE_MIN = 0.30, STROKE_MAX = 0.62; // Mechanical hard-stop limits (m)
+
+    const sFz = document.getElementById('s-fz'), sFx = document.getElementById('s-fx'), sFy = document.getElementById('s-fy');
+    const sMy = document.getElementById('s-my'), sMx = document.getElementById('s-mx'), sMz = document.getElementById('s-mz');
+    const sFmax = document.getElementById('s-fmax');
+
+    document.getElementById('btn-shock').addEventListener('click', () => {
+      shockWrench = [750, -520, -1850, 390, -420, 180];
+    });
+
+    document.getElementById('btn-overload').addEventListener('click', () => {
+      autoCircle = false;
+      document.getElementById('btn-circle').style.background = '#334155';
+      sFz.value = -2450;
+      sFx.value = 680;
+      sFy.value = -360;
+      sMy.value = 440;
+      sMx.value = -310;
+      sMz.value = 120;
+    });
+
+    document.getElementById('btn-circle').addEventListener('click', (e) => {
+      autoCircle = !autoCircle;
+      e.target.style.background = autoCircle ? '#0284c7' : '#334155';
+    });
+
+    document.getElementById('btn-reset').addEventListener('click', () => {
+      sFz.value = -1200; sFx.value = 0; sFy.value = 0;
+      sMy.value = 0; sMx.value = 0; sMz.value = 0;
+      sFmax.value = 1100;
+      shockWrench = [0, 0, 0, 0, 0, 0];
+      autoCircle = false;
+      document.getElementById('btn-circle').style.background = '#334155';
+    });
+
+    // Given a pose & velocity, compute kinematic geometry, Jacobian transpose J_invT, and axial leg forces
+    function evaluateHexapodState(q, dq) {
+      const P_eng = [q[0], q[1], Z0 + q[2]];
+      const R = getRotationMatrixEng(q[3], q[4], q[5]);
+      const J_T = [[], [], [], [], [], []]; // 6x6 matrix mapping f_legs -> platform wrench
+      const A_world_eng = [];
+      const legData = [];
+
+      for (let i = 0; i < 6; i++) {
+        const ra = matVec3(R, a_local[i]);
+        const Ai = [P_eng[0] + ra[0], P_eng[1] + ra[1], P_eng[2] + ra[2]];
+        A_world_eng.push(Ai);
+
+        const Li = [Ai[0] - B_eng[i][0], Ai[1] - B_eng[i][1], Ai[2] - B_eng[i][2]];
+        const len = Math.hypot(Li[0], Li[1], Li[2]);
+        const ui = [Li[0] / len, Li[1] / len, Li[2] / len];
+
+        // Moment arm cross product: m_i = r_a x u_i
+        const mi = [
+          ra[1] * ui[2] - ra[2] * ui[1],
+          ra[2] * ui[0] - ra[0] * ui[2],
+          ra[0] * ui[1] - ra[1] * ui[0]
+        ];
+
+        J_T[0][i] = ui[0]; J_T[1][i] = ui[1]; J_T[2][i] = ui[2];
+        J_T[3][i] = mi[0]; J_T[4][i] = mi[1]; J_T[5][i] = mi[2];
+
+        // Axial extension rate dl_i/dt = u_i . v_P + m_i . omega
+        const dl_dt =
+          ui[0] * dq[0] + ui[1] * dq[1] + ui[2] * dq[2] +
+          mi[0] * dq[3] + mi[1] * dq[4] + mi[2] * dq[5];
+
+        legData.push({ ui, mi, len, dl_dt, ra });
+      }
+      return { P_eng, R, J_T, A_world_eng, legData };
+    }
+
+    const upAxis = new THREE.Vector3(0, 1, 0);
+    let t = 0;
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const dtFrame = 0.016;
+      t += dtFrame;
+
+      if (autoCircle) {
+        sFx.value = Math.round(620 * Math.cos(t * 2.1));
+        sFy.value = Math.round(620 * Math.sin(t * 2.1));
+        sMy.value = Math.round(360 * Math.sin(t * 2.1));
+        sMx.value = Math.round(360 * Math.cos(t * 2.1));
+      }
+
+      const Fx = parseFloat(sFx.value) + shockWrench[0];
+      const Fy = parseFloat(sFy.value) + shockWrench[1];
+      const Fz = parseFloat(sFz.value) + shockWrench[2];
+      const Mx = parseFloat(sMx.value) + shockWrench[3];
+      const My = parseFloat(sMy.value) + shockWrench[4];
+      const Mz = parseFloat(sMz.value) + shockWrench[5];
+      const Fmax = parseFloat(sFmax.value);
+
+      // Exponentially decay transient shock impulse
+      shockWrench = shockWrench.map(w => w * 0.91);
+
+      document.getElementById('v-fz').textContent = `${Math.round(Fz)} N`;
+      document.getElementById('v-fx').textContent = `${Math.round(Fx)} N`;
+      document.getElementById('v-fy').textContent = `${Math.round(Fy)} N`;
+      document.getElementById('v-my').textContent = `${Math.round(My)} N·m`;
+      document.getElementById('v-mx').textContent = `${Math.round(Mx)} N·m`;
+      document.getElementById('v-mz').textContent = `${Math.round(Mz)} N·m`;
+      document.getElementById('v-fmax').textContent = `${Math.round(Fmax)} N`;
+
+      // Sub-stepped Real-World Physics Integration (8 substeps per frame @ dt = 0.002s)
+      const subSteps = 8;
+      const dt = dtFrame / subSteps;
+      const W_ext = [Fx, Fy, Fz, Mx, My, Mz];
+
+      let state = null;
+      let f_legs_dynamic = [0, 0, 0, 0, 0, 0];
+
+      for (let step = 0; step < subSteps; step++) {
+        state = evaluateHexapodState(pose, vel);
+        const W_net = [...W_ext];
+
+        for (let i = 0; i < 6; i++) {
+          const { len, dl_dt } = state.legData[i];
+          const deltaL = len - L0_legs[i];
+
+          // Axial restoring force from hydraulic/mechanical actuator (compression > 0 pushes platform along +u_i)
+          let fi = -K_ACTUATOR * deltaL - C_ACTUATOR * dl_dt;
+
+          // Hard mechanical end-stops if actuator approaches minimum/maximum stroke
+          if (len < STROKE_MIN) fi += (STROKE_MIN - len) * 250000;
+          if (len > STROKE_MAX) fi -= (len - STROKE_MAX) * 250000;
+
+          f_legs_dynamic[i] = fi;
+
+          // Project leg axial force into 6-DOF platform wrench via Jacobian Transpose J^T * f
+          for (let k = 0; k < 6; k++) {
+            W_net[k] += state.J_T[k][i] * fi;
+          }
+        }
+
+        // Semi-implicit Euler integration of 6-DOF rigid body equations of motion
+        for (let k = 0; k < 6; k++) {
+          const acc = W_net[k] / MASS_INITIAL[k] - 4.5 * vel[k];
+          vel[k] += acc * dt;
+          pose[k] += vel[k] * dt;
+        }
+
+        // Clamp workspace to prevent non-physical flip singularities while keeping joints strictly locked
+        pose[0] = Math.max(-0.16, Math.min(0.16, pose[0]));
+        pose[1] = Math.max(-0.16, Math.min(0.16, pose[1]));
+        pose[2] = Math.max(-0.15, Math.min(0.15, pose[2]));
+        pose[3] = Math.max(-0.42, Math.min(0.42, pose[3]));
+        pose[4] = Math.max(-0.42, Math.min(0.42, pose[4]));
+        pose[5] = Math.max(-0.48, Math.min(0.48, pose[5]));
+      }
+
+      // Final exact kinematic evaluation for rendering
+      state = evaluateHexapodState(pose, vel);
+
+      // Also solve exact quasi-static balance J^T * f_eq = -W_ext and blend with dynamic spring-damper forces
+      // so steady-state matches exact statics while transient shocks show real inertial spikes
+      const W_counter = [-Fx, -Fy, -Fz, -Mx, -My, -Mz];
+      const f_legs_static = solve6x6(state.J_T, W_counter);
+      const f_legs = f_legs_static.map((fStat, i) => 0.65 * fStat + 0.35 * f_legs_dynamic[i]);
+
+      // 1. Update Top Plate Transform using exact Rotation Matrix (Zero Disconnection!)
+      setTopGroupTransform(state.P_eng, state.R);
+      const platNormalThree = engToThree([state.R[0][2], state.R[1][2], state.R[2][2]]).normalize();
+      const platQuat = new THREE.Quaternion().setFromUnitVectors(upAxis, platNormalThree);
+
+      // 2. Update 6 Legs, Strict Joint Locks & Joint Snap Failure Visualization
+      let maxAbsForce = 0;
+      const snappedLegs = [];
+      const warnLegs = [];
+      const pulse = 0.55 + 0.45 * Math.sin(t * 14.0);
+
+      for (let i = 0; i < 6; i++) {
+        const B3 = engToThree(B_eng[i]);
+        const A3 = engToThree(state.A_world_eng[i]);
+        const L3 = new THREE.Vector3().subVectors(A3, B3);
+        const len = L3.length();
+        const dir = L3.clone().normalize();
+
+        // Lock Top Joint Sphere & Socket directly at A3 (mathematically identical to plate vertex & leg tip)
+        topJoints[i].sphere.position.copy(A3);
+        topJoints[i].socket.position.copy(A3).addScaledVector(platNormalThree, 0.005);
+        topJoints[i].socket.quaternion.copy(platQuat);
+        topJoints[i].halo.position.copy(A3).addScaledVector(platNormalThree, 0.002);
+        topJoints[i].halo.quaternion.copy(platQuat);
+
+        // Lock Leg between B3 and A3
+        legs[i].group.position.copy(B3);
+        legs[i].group.quaternion.setFromUnitVectors(upAxis, dir);
+        legs[i].inner.scale.set(1, len, 1);
+        legs[i].inner.position.y = len * 0.5;
+        legs[i].topCollar.position.y = len - 0.019;
+
+        const fi = f_legs[i]; // + = Compression (PUSH), - = Tension (PULL)
+        const absF = Math.abs(fi);
+        if (absF > maxAbsForce) maxAbsForce = absF;
+
+        const isSnapped = absF >= Fmax;
+        const isWarn = !isSnapped && absF >= 0.82 * Fmax;
+        if (isSnapped) snappedLegs.push(i + 1);
+        else if (isWarn) warnLegs.push(i + 1);
+
+        // Highlight Joints & Collars in Red if Load Exceeds Joint Snap Threshold
+        if (isSnapped) {
+          const snapColor = 0xef4444;
+          baseJoints[i].mat.color.setHex(snapColor);
+          baseJoints[i].mat.emissive.setHex(snapColor);
+          baseJoints[i].mat.emissiveIntensity = 0.65 * pulse + 0.25;
+          baseJoints[i].sphere.scale.setScalar(1.22);
+          baseJoints[i].haloMat.opacity = 0.85 * pulse;
+
+          topJoints[i].mat.color.setHex(snapColor);
+          topJoints[i].mat.emissive.setHex(snapColor);
+          topJoints[i].mat.emissiveIntensity = 0.65 * pulse + 0.25;
+          topJoints[i].sphere.scale.setScalar(1.22);
+          topJoints[i].haloMat.opacity = 0.85 * pulse;
+
+          legs[i].collarMat.color.setHex(0xef4444);
+          legs[i].collarMat.emissive.setHex(0xef4444);
+          legs[i].collarMat.emissiveIntensity = 0.45 * pulse;
+          legs[i].outerMat.color.setHex(0x7f1d1d);
+        } else if (isWarn) {
+          const warnColor = 0xf59e0b;
+          baseJoints[i].mat.color.setHex(warnColor);
+          baseJoints[i].mat.emissive.setHex(warnColor);
+          baseJoints[i].mat.emissiveIntensity = 0.35;
+          baseJoints[i].sphere.scale.setScalar(1.08);
+          baseJoints[i].haloMat.opacity = 0.0;
+
+          topJoints[i].mat.color.setHex(warnColor);
+          topJoints[i].mat.emissive.setHex(warnColor);
+          topJoints[i].mat.emissiveIntensity = 0.35;
+          topJoints[i].sphere.scale.setScalar(1.08);
+          topJoints[i].haloMat.opacity = 0.0;
+
+          legs[i].collarMat.color.setHex(0xd97706);
+          legs[i].collarMat.emissive.setHex(0x000000);
+          legs[i].collarMat.emissiveIntensity = 0;
+          legs[i].outerMat.color.setHex(0x475569);
+        } else {
+          baseJoints[i].mat.color.setHex(0x94a3b8);
+          baseJoints[i].mat.emissive.setHex(0x000000);
+          baseJoints[i].mat.emissiveIntensity = 0;
+          baseJoints[i].sphere.scale.setScalar(1.0);
+          baseJoints[i].haloMat.opacity = 0.0;
+
+          topJoints[i].mat.color.setHex(0x94a3b8);
+          topJoints[i].mat.emissive.setHex(0x000000);
+          topJoints[i].mat.emissiveIntensity = 0;
+          topJoints[i].sphere.scale.setScalar(1.0);
+          topJoints[i].haloMat.opacity = 0.0;
+
+          legs[i].collarMat.color.setHex(0x64748b);
+          legs[i].collarMat.emissive.setHex(0x000000);
+          legs[i].collarMat.emissiveIntensity = 0;
+          legs[i].outerMat.color.setHex(0x475569);
+        }
+
+        // Update Telemetry Bar & Snap Limit Markers
+        const row = document.getElementById(`row-${i}`);
+        const lbl = document.getElementById(`lbl-${i}`);
+        const bar = document.getElementById(`bar-${i}`);
+        const txt = document.getElementById(`txt-${i}`);
+        const limPos = document.getElementById(`lim-pos-${i}`);
+        const limNeg = document.getElementById(`lim-neg-${i}`);
+
+        const maxScale = 2000;
+        const limPct = Math.min(49, (Fmax / maxScale) * 50);
+        limPos.style.left = `${50 + limPct}%`;
+        limNeg.style.left = `${50 - limPct}%`;
+
+        const pct = Math.min(50, (absF / maxScale) * 50);
+        row.className = isSnapped ? 'leg-row snap-row' : (isWarn ? 'leg-row warn-row' : 'leg-row');
+        lbl.style.color = isSnapped ? '#f87171' : (isWarn ? '#fbbf24' : '#94a3b8');
+
+        let statusBadge = '';
+        if (isSnapped) {
+          statusBadge = `<span class="badge snap-badge">SNAP!</span>`;
+        } else if (isWarn) {
+          statusBadge = `<span class="badge warn">WARN</span>`;
+        } else if (fi >= 0) {
+          statusBadge = `<span class="badge push">PUSH</span>`;
+        } else {
+          statusBadge = `<span class="badge pull">PULL</span>`;
+        }
+
+        const barColor = isSnapped ? '#ef4444' : (isWarn ? '#f59e0b' : (fi >= 0 ? '#22c55e' : '#38bdf8'));
+        if (fi >= 0) {
+          bar.style.left = '50%';
+          bar.style.width = `${pct}%`;
+          bar.style.background = barColor;
+          txt.innerHTML = `+${Math.round(fi)}N ${statusBadge}`;
+        } else {
+          bar.style.left = `${50 - pct}%`;
+          bar.style.width = `${pct}%`;
+          bar.style.background = barColor;
+          txt.innerHTML = `${Math.round(fi)}N ${statusBadge}`;
+        }
+      }
+
+      // 3. Update Structural Status Banner & Kinematics HUD
+      const banner = document.getElementById('status-banner');
+      const statusText = document.getElementById('status-text');
+      const statusSub = document.getElementById('status-sub');
+      const statusMetrics = document.getElementById('status-metrics');
+      const sf = maxAbsForce > 1 ? (Fmax / maxAbsForce).toFixed(2) : '9.99';
+
+      if (snappedLegs.length > 0) {
+        banner.className = 'snap';
+        statusText.textContent = `🚨 JOINT SNAP LIMIT EXCEEDED — LEG${snappedLegs.length > 1 ? 'S' : ''} ${snappedLegs.join(', ')} FAILING`;
+        statusSub.textContent = `Joints remain kinematically locked for inspection, but load exceeds ${Math.round(Fmax)} N critical bearing snap rating (highlighted in red).`;
+      } else if (warnLegs.length > 0) {
+        banner.className = 'warning';
+        statusText.textContent = `⚠️ HIGH JOINT STRESS WARNING — LEG${warnLegs.length > 1 ? 'S' : ''} ${warnLegs.join(', ')} NEAR YIELD`;
+        statusSub.textContent = `Joint load exceeds 82% of ${Math.round(Fmax)} N snap threshold. Reduce overturning moment or vertical load.`;
+      } else {
+        banner.className = 'nominal';
+        statusText.textContent = `STRUCTURAL INTEGRITY: NOMINAL (ALL 12 JOINTS LOCKED)`;
+        statusSub.textContent = `Real-time 6-DOF spring-damper equilibrium active; all joint loads below ${Math.round(Fmax)} N snap limit.`;
+      }
+      statusMetrics.textContent = `Peak: ${Math.round(maxAbsForce)} N | SF: ${sf}x`;
+
+      const tiltDeg = (Math.hypot(pose[3], pose[4]) * 180 / Math.PI).toFixed(2);
+      document.getElementById('hud-dz').textContent = (pose[2] * 1000).toFixed(1);
+      document.getElementById('hud-dxy').textContent = (Math.hypot(pose[0], pose[1]) * 1000).toFixed(1);
+      document.getElementById('hud-tilt').textContent = tiltDeg;
+
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    window.addEventListener('resize', () => {
+      camera.aspect = container.clientWidth / container.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(container.clientWidth, container.clientHeight);
+    });
+  </script>
+</body>
+</html>

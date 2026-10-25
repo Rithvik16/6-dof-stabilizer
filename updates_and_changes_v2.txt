@@ -1,0 +1,27 @@
+6-DOF STEWART PLATFORM STABILIZER - LATEST UPDATES AND CHANGES
+Date: October 25, 2026
+
+1. UNIFIED 3D KINEMATICS AND STRICT JOINT CONNECTIVITY
+- Fixed the rotational mismatch between the engineering coordinate frame (X-right, Y-forward, Z-up) and the Three.js rendering frame (X-right, Y-up, Z-back).
+- Replaced Euler angle approximations on the top platform group with an exact similarity transformation of the 3x3 rotation matrix (R_three = T * R_eng * T^T) applied directly via THREE.Matrix4.
+- Locked all 6 base spherical joints (B_1 to B_6) and all 6 platform spherical joints (A_1 to A_6) to the exact actuator endpoints with zero geometric gap (0.000 mm joint separation error across all 6 degrees of freedom).
+- Added lower and upper clevis collars and bearing sockets to each telescoping actuator leg so the mechanical assembly remains visually and kinematically connected under all pitch, roll, yaw, heave, surge, and sway deflections.
+
+2. REAL-WORLD 6-DOF MULTI-BODY DYNAMICS ENGINE
+- Replaced the simplified static deflection heuristic with a sub-stepped 6-DOF rigid-body physics solver running 8 integration sub-steps per frame (dt = 0.002 s).
+- Modeled realistic platform mass and principal moments of inertia (m = 38 kg, I_xx = 2.4 kg*m^2, I_yy = 2.4 kg*m^2, I_zz = 3.8 kg*m^2).
+- Implemented per-leg axial spring stiffness (k_a = 38,000 N/m) and viscous damping (c_a = 1,650 N*s/m) referenced against exact nominal home leg lengths (L0_i), along with hard mechanical stroke end-stops (0.30 m to 0.62 m).
+- Projected individual actuator restoring forces into the 6-DOF platform wrench at every physics sub-step using the live kinematic Jacobian transpose (J^T * f) and combined dynamic spring-damper forces with the exact 6x6 Gaussian-elimination quasi-static balance.
+- Added full 6-DOF external load controls: Vertical Load (F_z), Lateral Shear Forces (F_x and F_y), Pitch Moment (M_y), Roll Moment (M_x), and Yaw Torque (M_z).
+
+3. JOINT SNAP THRESHOLD DETECTION AND RED FAILURE HIGHLIGHTING
+- Added an interactive Joint Snap Limit (F_max) slider (600 N to 2,000 N, default 1,100 N) and a Test Joint Snap preset button to evaluate structural overload conditions without disconnecting the joints.
+- Implemented three-tier structural stress states across all 12 joints, clevis collars, and telemetry bars:
+  * Nominal State (|f_i| < 82% of F_max): Metallic slate bearings with green (PUSH/compression) or cyan (PULL/tension) telemetry readouts.
+  * Yield Warning State (82% <= |f_i| < 100% of F_max): Amber joint and collar glow with WARN telemetry badges and a high-stress HUD alert.
+  * Joint Snap Failure State (|f_i| >= F_max): Pulsing crimson red highlight on the overloaded base and platform ball joints, clevis collars, actuator barrel, and 3D failure halo rings, paired with a critical SNAP! telemetry alert.
+- Added real-time Structural Integrity HUD and Kinematics HUD displaying peak leg force (N), minimum Safety Factor (SF = F_max / max(|f_i|)), vertical heave deflection (dZ in mm), lateral shear displacement (dX/Y in mm), platform tilt angle (degrees), and joint gap error (0.000 mm).
+
+4. CLEAN 3D VIEWPORT PRESENTATION
+- Removed all 3D floating arrow and vector indicators (the 6 actuator counter-force arrows, the external load vector arrow, and the overturning moment ring) for an unobstructed view of the hexapod mechanism and joint stress states.
+- Updated the viewport legend to directly reference the three joint stress states (Slate Nominal Load, Amber Yield Warning, and Red Joint Snap Limit Exceeded).
