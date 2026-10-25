@@ -1,0 +1,176 @@
+6-DOF STEWART PLATFORM SIMULATOR (VERSION 2) - CORE FUNCTIONALITY SPECIFICATION
+Target Source File: stewart_stabilizer.html (Version 2 - Real-World Dynamics & Joint Failure Simulator)
+Document Architecture: Dual-Layer Specification (Section 1: Layman Version | Section 2: Agentic Version)
+
+================================================================================
+SECTION 1: LAYMAN VERSION (PLAIN-ENGLISH FUNCTIONAL GUIDE)
+================================================================================
+
+1.1 OVERVIEW & REAL-WORLD PURPOSE
+Version 2 (stewart_stabilizer.html) is a real-world physics and structural failure simulator of a 6-Degree-of-Freedom (6-DOF) Stewart Platform ("Hexapod") stabilizer. Like a real hydraulic flight simulator, shipboard motion-compensated deck, or heavy robotic positioner, it supports a movable top platform on 6 angled telescoping legs.
+Version 2 prioritizes two real-world engineering requirements:
+1. All 12 joints remain strictly connected at all times (zero floating or detached parts under any load or tilt).
+2. Real-world weight, spring stiffness, damping, and structural overload limits determine how the platform moves and exactly which joints will snap if overloaded—highlighting failing joint areas in pulsing red while keeping the mechanism intact for inspection.
+
+1.2 3D VISUAL COMPONENTS (WHAT YOU SEE ON SCREEN)
+- Bottom Base Plate (Dark Slate Gray Hexagon): The fixed foundation anchored to the ground grid.
+- Top Platform Plate (Blue Hexagon): The movable 38 kg payload deck that dips, shifts, tilts, and twists in response to external loads.
+- 12 Locked Ball-and-Socket Joint Assemblies:
+  * Each leg end is connected to the plates through a spherical ball bearing, a cylindrical mounting socket flush with the plate surface, and a tapered clevis collar on the leg end.
+  * Every top and bottom joint is surrounded by a hidden 3D failure halo ring that lights up in red only when that joint is overloaded past its breaking point.
+- 6 Telescoping Hydraulic/Mechanical Legs:
+  * Each leg consists of a dark gray lower cylinder barrel, a bright silver inner piston rod spanning the exact distance between the base and platform ball joints, and upper/lower clevis collars.
+  * All floating 3D arrows and rings have been removed so you have a clean, unobstructed view of the mechanical assembly and joint stress colors.
+- Three-Stage Joint Color Coding:
+  * Slate Gray Joints (Nominal Load): The joint is operating safely below 82% of its snap limit.
+  * Amber / Orange Joints (Yield Warning): The joint load is between 82% and 100% of its snap limit, warning that it is approaching structural yield.
+  * Pulsing Red Joints, Collars & Halo Rings (Joint Snap Limit Exceeded): The load on that leg has reached or exceeded the Joint Snap Limit (F_max). The top and bottom ball joints, sockets, collars, leg barrel, and surrounding halo rings pulse crimson red to show the exact joint locations that will snap under that load.
+
+1.3 INTERACTIVE CONTROLS (SLIDERS & PRESET BUTTONS)
+Version 2 provides a full 6-DOF load control grid, a structural limit slider, and 4 preset buttons in the right sidebar:
+- Vertical Load Slider (F_z): Ranges from -3,200 N (heavy downward payload) to +800 N (upward lift), default -1,200 N.
+- Lateral Shear Slider (F_x): Ranges from -1,200 N to +1,200 N (default 350 N), pushing the platform left or right.
+- Lateral Shear Slider (F_y): Ranges from -1,200 N to +1,200 N (default 0 N), pushing the platform forward or backward.
+- Pitch Moment Slider (M_y): Ranges from -650 N*m to +650 N*m (default 220 N*m), tipping the platform nose up or down.
+- Roll Moment Slider (M_x): Ranges from -650 N*m to +650 N*m (default 0 N*m), tipping the platform left or right.
+- Yaw Torque Slider (M_z): Ranges from -450 N*m to +450 N*m (default 0 N*m), twisting the platform flat around its vertical axis.
+- Joint Snap Limit Slider (F_max, Cyan): Ranges from 600 N to 2,000 N (default 1,100 N). Sets the maximum force rating of the joints before they snap.
+- Shock Impulse Button (Red): Hits the platform across all 6 directions at once with a heavy impact jolt so you can watch transient shock forces spike and settle.
+- Test Joint Snap Button (Amber): Automatically dials in an extreme multi-axis overload (F_z = -2,450 N, F_x = 680 N, F_y = -360 N, M_y = 440 N*m, M_x = -310 N*m, M_z = 120 N*m) that pushes multiple legs past the snap limit so you can immediately inspect the red failure highlights.
+- Auto-Circle Load Button: Continuously rotates a heavy sideways and tilting load around the platform in a 360-degree circle.
+- Reset Button: Restores all load sliders and the Joint Snap Limit (1,100 N) to their safe starting values.
+
+1.4 HOW THE PLATFORM MOVES & BALANCES FORCES
+Instead of using simple visual multipliers, Version 2 runs a real-world physics engine 8 times every animation frame:
+1. Each of the 6 legs acts like a real physical spring and hydraulic damper: when stretched or compressed away from its resting length, it pushes or pulls back on the top plate along its exact 3D angle.
+2. Because the legs are angled in triangles, pushing sideways naturally causes realistic cross-axis coupling (slight tilts and height shifts), and if a leg reaches its minimum (0.30 m) or maximum (0.62 m) stroke, hard mechanical end-stops engage.
+3. The simulator continuously combines the live dynamic spring-damper forces (which capture sudden impact spikes) with the exact 6x6 static balance forces to determine the total force on every joint.
+
+1.5 SIDEBAR TELEMETRY & VISUAL FEEDBACK
+- Top Structural Status Banner (In 3D Viewport):
+  * Green Border ("STRUCTURAL INTEGRITY: NOMINAL"): All 12 joints are locked and below 82% of F_max.
+  * Amber Border ("HIGH JOINT STRESS WARNING"): Lists which legs are between 82% and 100% of F_max.
+  * Pulsing Red Border ("JOINT SNAP LIMIT EXCEEDED"): Lists the exact leg numbers failing beyond F_max, alongside the live Peak Force (N) and Safety Factor (SF = F_max / Peak Force; SF < 1.00x means snap failure).
+- Bottom Kinematics HUD (In 3D Viewport):
+  * Displays real-time vertical deflection (dZ in mm), horizontal shift (dX/Y in mm), total tilt angle (degrees), and Joint Gap Error (locked at 0.000 mm).
+- Sidebar Telemetry Bars (Leg 1 to Leg 6):
+  * Each bar has two red vertical tick marks showing the current Joint Snap Limit (+F_max and -F_max).
+  * Bars glow green ("PUSH"), cyan ("PULL"), amber ("WARN"), or pulsing red ("SNAP!") depending on each leg's real-time stress state.
+
+
+================================================================================
+SECTION 2: AGENTIC VERSION (TECHNICAL ARCHITECTURE, DOM CONTRACT & MATH SPECIFICATION)
+================================================================================
+
+2.1 SYSTEM ARCHITECTURE & RUNTIME STACK
+- File Type: Self-contained single-file HTML5 web application (stewart_stabilizer.html).
+- Rendering Engine: Three.js r128 (https://www.google.com/search?q=https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js) with WebGLRenderer({ antialias: true }).
+- Layout Architecture: Responsive Flexbox split view (#viewport flex: 1 + #sidebar 400px on desktop >= 860px) with 2-column CSS Grid (.control-grid) for 6-DOF sliders and overlaid HUD banners (#status-banner, #kin-hud).
+- Physics & Render Cadence: Visual render loop at dtFrame = 0.016 s (~60 FPS) with an 8-substep per frame physics integrator running at dt = 0.002 s (500 Hz physics update rate).
+
+2.2 COORDINATE FRAME MAPPING & GEOMETRIC CONSTANTS
+- Coordinate System Transformation:
+  * Engineering Frame: X-right, Y-forward, Z-up.
+  * Three.js World Frame: X-right, Y-up, Z-backward.
+  * Basis Change Matrix T (mapping v_three = T * v_eng):
+    T = [[1, 0, 0], [0, 0, 1], [0, -1, 0]] (orthogonal, T^-1 = T^T).
+  * Vector helper: function engToThree(v) { return new THREE.Vector3(v[0], v[2], -v[1]); }
+- Hexapod Geometry Constants:
+  * Base Radius Rb = 0.48 m (Z_eng = 0); Platform Radius Rp = 0.34 m; Nominal Home Height Z0 = 0.44 m.
+  * Base Joint Angles: baseAngles = [-10, 10, 110, 130, 230, 250] deg -> B_eng[0..5].
+  * Platform Joint Angles: platAngles = [-50, 50, 70, 170, 190, 290] deg -> a_local[0..5].
+  * Reference Rest Leg Lengths (L0_legs[0..5]):
+    L0_legs[i] = hypot(a_local[i][0] - B_eng[i][0], a_local[i][1] - B_eng[i][1], Z0 - B_eng[i][2]) (~0.4966 m).
+
+2.3 THREE.JS SCENE GRAPH & MESH HIERARCHY
+- Lighting & Environment:
+  * AmbientLight(0xffffff, 0.68), primary DirectionalLight(0xffffff, 0.9) at (2.5, 4.5, 3.0), and secondary fill DirectionalLight(0x93c5fd, 0.35) at (-2.5, 2.0, -2.0).
+  * GridHelper(2.2, 22, 0x334155, 0x1e293b) at y = -0.025.
+- Matrix-Synchronized Moving Platform (topGroup):
+  * topGroup.matrixAutoUpdate = false (manual THREE.Matrix4 assignment eliminates Euler order/sign bugs).
+  * topPlateMesh: Extruded hexagon (thickness 0.024 m, color 0x2563eb) at local y = 0.002 so spherical bearings sit flush against the bottom surface.
+- 12 Joint Assemblies (baseJoints[0..5] & topJoints[0..5]):
+  * Each joint object stores { sphere, socket, mat, halo, haloMat } with independent MeshStandardMaterial (mat) and double-sided transparent ring MeshBasicMaterial (haloMat, RingGeometry(0.028, 0.052, 24)).
+  * Base joints are fixed at engToThree(B_eng[i]); top joints are updated every frame in world coordinates directly from A3 = engToThree(state.A_world_eng[i]) and aligned to the transformed plate normal vector platNormalThree.
+- 6 Telescoping Actuator Leg Assemblies (legs[0..5]):
+  * Each leg object stores { group, outer, inner, topCollar, outerMat, innerMat, collarMat }.
+  * outer: Lower barrel cylinder (radius 0.019 m, length 0.27 m) centered at y = 0.135 m.
+  * inner: Piston rod cylinder (radius 0.0115 m, unit length) scaled dynamically to [1, len, 1] and centered at y = len * 0.5.
+  * baseCollar & topCollar: Tapered clevis cylinders wrapping the base joint (y = 0.018 m) and platform joint (y = len - 0.019 m).
+  * Zero 3D arrow or torus meshes exist in the scene graph.
+
+2.4 KINEMATICS, STATICS & DYNAMICS EQUATIONS (FRAME-BY-FRAME PIPELINE)
+1. Exact 3x3 Rotation Matrix & Similarity Transformation:
+   - getRotationMatrixEng(rx, ry, rz) computes R_eng = Rz(rz) * Ry(ry) * Rx(rx):
+     R_eng = [
+       [cz*cy, cz*sy*sx - sz*cx, cz*sy*cx + sz*sx],
+       [sz*cy, sz*sy*sx + cz*cx, sz*sy*cx - cz*sx],
+       [-sy,   cy*sx,            cy*cx           ]
+     ]
+   - setTopGroupTransform(P_eng, R_eng) computes R_three = T * R_eng * T^T and populates topGroup.matrix:
+     m.set(
+        R[0][0],  R[0][2], -R[0][1],  P_eng[0],
+        R[2][0],  R[2][2], -R[2][1],  P_eng[2],
+       -R[1][0], -R[1][2],  R[1][1], -P_eng[1],
+        0,        0,        0,        1
+     )
+   - Because both topPlateMesh and A_world_eng[i] = P_eng + R_eng * a_local[i] derive from the identical matrix R_eng, the geometric joint gap error is identically 0.000 mm (< 1e-15 m floating-point precision).
+2. Sub-Stepped 6-DOF Rigid-Body Dynamics Engine (8 substeps/frame, dt = 0.002 s):
+   - Physical Parameters:
+     MASS_INITIAL = [38.0, 38.0, 38.0, 2.4, 2.4, 3.8] (kg and kg*m^2)
+     K_ACTUATOR = 38000 N/m, C_ACTUATOR = 1650 N*s/m
+     STROKE_MIN = 0.30 m, STROKE_MAX = 0.62 m (end-stop penalty stiffness = 250000 N/m)
+   - In each substep, evaluateHexapodState(pose, vel) computes for leg i = 0..5:
+     ra = R_eng * a_local[i], Ai = P_eng + ra, Li = Ai - B_eng[i], len = ||Li||, ui = Li / len
+     mi = ra x ui
+     dl_dt = ui . v_P + mi . omega  (axial extension velocity)
+     deltaL = len - L0_legs[i]
+     fi = -K_ACTUATOR * deltaL - C_ACTUATOR * dl_dt + end_stop_penalty(len)
+   - Projects axial leg forces into net 6-DOF platform wrench via the Jacobian transpose J_T:
+     W_net[k] = W_ext[k] + sum_{i=0..5}(J_T[k][i] * fi)
+   - Semi-implicit Euler integration:
+     acc[k] = W_net[k] / MASS_INITIAL[k] - 4.5 * vel[k]
+     vel[k] += acc[k] * dt
+     pose[k] += vel[k] * dt
+3. Hybrid Dynamic-Static Axial Force Computation:
+   - Solves exact quasi-static balance J_T * f_legs_static = -W_ext via 6x6 Gaussian elimination with partial pivoting (solve6x6).
+   - Computes total leg force: f_legs[i] = 0.65 * f_legs_static[i] + 0.35 * f_legs_dynamic[i].
+
+2.5 DOM ELEMENT CONTRACT (INPUTS, OUTPUTS & EVENT HANDLERS)
+- Range Sliders & Readout Spans:
+  * #s-fz (min="-3200", max="800", step="25", value="-1200") -> #v-fz
+  * #s-fx (min="-1200", max="1200", step="20", value="350") -> #v-fx
+  * #s-fy (min="-1200", max="1200", step="20", value="0") -> #v-fy
+  * #s-my (min="-650", max="650", step="10", value="220") -> #v-my
+  * #s-mx (min="-650", max="650", step="10", value="0") -> #v-mx
+  * #s-mz (min="-450", max="450", step="10", value="0") -> #v-mz
+  * #s-fmax (min="600", max="2000", step="25", value="1100") -> #v-fmax
+- Preset Buttons (via addEventListener('click', ...)):
+  * #btn-shock: Sets shockWrench = [750, -520, -1850, 390, -420, 180] (decays by 0.91x per frame).
+  * #btn-overload: Sets sFz = -2450, sFx = 680, sFy = -360, sMy = 440, sMx = -310, sMz = 120 to trigger immediate multi-leg joint snap.
+  * #btn-circle: Toggles autoCircle; drives sFx = 620*cos(2.1*t), sFy = 620*sin(2.1*t), sMy = 360*sin(2.1*t), sMx = 360*cos(2.1*t).
+  * #btn-reset: Resets sFz = -1200, sFx = sFy = sMy = sMx = sMz = 0, sFmax = 1100, shockWrench = [0..0], autoCircle = false.
+- Viewport HUD Elements:
+  * #status-banner (classes: .nominal, .warning, .snap), #status-text, #status-sub, #status-metrics (displays Peak Force in N and Safety Factor SF = (Fmax / maxAbsForce).toFixed(2)).
+  * #kin-hud: #hud-dz ((pose[2]*1000).toFixed(1) mm), #hud-dxy ((hypot(pose[0],pose[1])*1000).toFixed(1) mm), #hud-tilt ((hypot(pose[3],pose[4])*180/PI).toFixed(2) deg).
+- Per-Leg Telemetry Rows (i = 0..5):
+  * #row-i (classes: .leg-row, .warn-row, .snap-row), #lbl-i, #bar-i, #txt-i, and snap limit ticks #lim-pos-i / #lim-neg-i positioned at 50 +/- min(49, (Fmax / 2000) * 50)%.
+
+2.6 STATE VARIABLES, CONSTANTS & EDGE-CASE / FAILURE BEHAVIOR
+- Three-Tier Joint Failure State Machine (evaluated per leg i every frame, pulse = 0.55 + 0.45 * sin(14 * t)):
+  1. Nominal State (|fi| < 0.82 * Fmax):
+     - baseJoints[i].mat & topJoints[i].mat: color 0x94a3b8, emissive 0x000000, scale 1.0, halo opacity 0.0.
+     - legs[i].collarMat: color 0x64748b; legs[i].outerMat: color 0x475569.
+     - Telemetry bar: #22c55e with .push badge (fi >= 0) or #38bdf8 with .pull badge (fi < 0).
+  2. Yield Warning State (0.82 * Fmax <= |fi| < Fmax):
+     - baseJoints[i].mat & topJoints[i].mat: color 0xf59e0b, emissive 0xf59e0b (intensity 0.35), sphere scale 1.08, halo opacity 0.0.
+     - legs[i].collarMat: color 0xd97706.
+     - Telemetry bar: #f59e0b with .warn badge ("WARN") and row class .warn-row.
+  3. Critical Joint Snap State (|fi| >= Fmax):
+     - Joints remain kinematically locked at B3 and A3 (no geometric disconnection).
+     - baseJoints[i].mat & topJoints[i].mat: color 0xef4444, pulsing emissive 0xef4444 (intensity 0.65 * pulse + 0.25), sphere scale 1.22, failure halo ring opacity 0.85 * pulse.
+     - legs[i].collarMat: color 0xef4444, emissiveIntensity 0.45 * pulse; legs[i].outerMat: dark crimson 0x7f1d1d.
+     - Telemetry bar: #ef4444 with pulsing .snap-badge ("SNAP!") and row class .snap-row.
+- Workspace & Singularity Protection:
+  * Pose clamping prevents non-physical platform flip singularities: dx, dy in [-0.16, 0.16] m, dz in [-0.15, 0.15] m, rx, ry in [-0.42, 0.42] rad, rz in [-0.48, 0.48] rad.
+  * solve6x6 enforces minimum pivot magnitude 1e-9.

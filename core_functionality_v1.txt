@@ -1,0 +1,150 @@
+6-DOF STEWART PLATFORM SIMULATOR (VERSION 1) - CORE FUNCTIONALITY SPECIFICATION
+Target Source File: stewart_stabilizer_v1.html
+Document Architecture: Dual-Layer Specification (Section 1: Layman Version | Section 2: Agentic Version)
+
+================================================================================
+SECTION 1: LAYMAN VERSION (PLAIN-ENGLISH FUNCTIONAL GUIDE)
+================================================================================
+
+1.1 OVERVIEW & REAL-WORLD PURPOSE
+Version 1 (stewart_stabilizer_v1.html) is an interactive 3D web simulation of a 6-Degree-of-Freedom (6-DOF) Stewart Platform, also known as a "Hexapod". In the real world, this mechanism is used for flight simulator cabins, stabilized helicopter landing pads on ships, precision surgical tables, and robotic telescope mounts.
+The simulator lets you push, tilt, and jolt the top platform using simple sliders and buttons while watching how the 6 angled telescoping legs automatically push upward or pull downward to hold the platform up.
+
+1.2 3D VISUAL COMPONENTS (WHAT YOU SEE ON SCREEN)
+- Bottom Base Plate (Dark Slate Gray Hexagon): The fixed foundation bolted to the ground grid.
+- Top Platform Plate (Blue Hexagon): The movable top deck that carries the load and dips or tilts when forces are applied.
+- 12 Metallic Ball Joints (Silver Spheres): Six ball joints sit on the bottom plate and six sit on the top plate, serving as the anchor points for the legs.
+- 6 Telescoping Actuator Legs: Six two-part metal cylinders (a dark gray outer barrel and a bright silver sliding inner piston rod) arranged in a triangulated zig-zag pattern between the bottom and top plates.
+- Red External Load Arrow & Red Curved Ring (On Top Plate):
+  * A vertical/angled Red Arrow on top of the blue plate shows the direction and strength of the straight-line push you are applying.
+  * A curved Red Ring above the blue plate tilts to show the twisting/overturning force (moment) trying to tip the platform.
+- 6 Green Actuator Counter-Force Arrows (Beside the Legs):
+  * Floating beside each of the 6 legs is a green 3D arrow.
+  * When a green arrow points upward along a leg, that leg is in compression (pushing up to support the plate).
+  * When a green arrow points downward along a leg, that leg is in tension (pulling down to anchor the plate against tipping).
+- 3D Camera Controls: Click and drag (or touch-drag) anywhere in the 3D viewport to orbit around the platform; scroll the mouse wheel (or pinch) to zoom in and out.
+
+1.3 INTERACTIVE CONTROLS (SLIDERS & PRESET BUTTONS)
+Version 1 provides 4 red load sliders and 3 action buttons in the right-hand sidebar:
+- Vertical Load Slider (F_z): Ranges from -2,500 N to 0 N (default -1,200 N). Simulates downward weight pressing on the top plate.
+- Lateral Shear Force Slider (F_x): Ranges from -800 N to +800 N (default 350 N). Simulates a sideways push shoving the top plate left or right.
+- Pitch Overturning Moment Slider (M_y): Ranges from -450 N*m to +450 N*m (default 220 N*m). Simulates a tipping force tilting the nose of the plate forward or backward.
+- Roll Overturning Moment Slider (M_x): Ranges from -450 N*m to +450 N*m (default 0 N*m). Simulates a tipping force rolling the plate side to side.
+- Shock Impulse Button (Red): Hits the platform with an instant multi-directional jolt so you can watch the platform dip, tilt, and spring back into place as the shock wears off.
+- Auto-Circle Load Button: Automatically moves the sideways force (F_x), pitch moment (M_y), and roll moment (M_x) in a continuous wave so the platform wobbles in a smooth circle.
+- Reset Button: Returns the Vertical Load to -1,200 N, sets all other sliders to 0, and turns off Auto-Circle Load.
+
+1.4 HOW THE PLATFORM MOVES & BALANCES FORCES
+Every time you move a slider or trigger a shock:
+1. The simulator calculates a visual dip and tilt for the blue top plate proportional to the sliders, using a smooth spring-like animation so the plate glides and settles naturally.
+2. At that new position, the simulator solves a 6-equation balance problem to figure out the exact force (in Newtons) each of the 6 angled legs must produce so that all 6 legs together cancel out the external load.
+3. Note on Version 1 Joint Alignment: In Version 1, the simplified rotation formula used to tilt the blue top plate has an inverted pitch direction compared to the formula used to aim the 6 legs, which causes the top ball joints and leg tips to visually separate when Pitch (M_y) or Roll (M_x) is applied.
+
+1.5 SIDEBAR TELEMETRY & VISUAL FEEDBACK
+Under "2. Actuator Response Forces (Green)", six live horizontal meters (Leg 1 to Leg 6) display each leg's workload:
+- Center Line (0 N): Marks zero force.
+- Green Bar Expanding Right (+N, "PUSH" Badge): Indicates the leg is pushing upward (compression) to support the top plate.
+- Cyan/Blue Bar Expanding Left (-N, "PULL" Badge): Indicates the leg is pulling downward (tension) to keep the top plate from flipping over.
+
+
+================================================================================
+SECTION 2: AGENTIC VERSION (TECHNICAL ARCHITECTURE, DOM CONTRACT & MATH SPECIFICATION)
+================================================================================
+
+2.1 SYSTEM ARCHITECTURE & RUNTIME STACK
+- File Type: Self-contained single-file HTML5 web application (stewart_stabilizer_v1.html).
+- Rendering Engine: Three.js r128 (loaded via CDN https://www.google.com/search?q=https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js) using THREE.WebGLRenderer({ antialias: true }).
+- Layout Architecture: Responsive CSS Flexbox split layout (#viewport flex: 1 with radial gradient background + #sidebar 380px fixed width on desktop >= 860px, stacked vertically on mobile).
+- Execution Loop: Browser requestAnimationFrame(animate) loop running at nominal dt = 0.016 s (~60 FPS).
+
+2.2 COORDINATE FRAME MAPPING & GEOMETRIC CONSTANTS
+- Coordinate System Transformation:
+  * Engineering Frame (used for kinematics and statics): X-right, Y-forward, Z-up.
+  * Three.js World Frame (used for rendering): X-right, Y-up, Z-backward.
+  * Mapping Function:
+    function engToThree(v) { return new THREE.Vector3(v[0], v[2], -v[1]); }
+- Hexapod Geometry Constants (6-6 Triangulated Configuration):
+  * Base Radius: Rb = 0.48 m (lying in plane Z_eng = 0).
+  * Platform Radius: Rp = 0.34 m (at nominal home height Z0 = 0.44 m).
+  * Base Attachment Angles (deg): baseAngles = [-10, 10, 110, 130, 230, 250] * (PI / 180).
+  * Platform Attachment Angles (deg): platAngles = [-50, 50, 70, 170, 190, 290] * (PI / 180).
+  * Base Joint Coordinates (Engineering Frame):
+    B_eng[i] = [Rb * cos(baseAngles[i]), Rb * sin(baseAngles[i]), 0] for i = 0..5.
+  * Local Platform Joint Coordinates (Platform Body Frame):
+    a_local[i] = [Rp * cos(platAngles[i]), Rp * sin(platAngles[i]), 0] for i = 0..5.
+
+2.3 THREE.JS SCENE GRAPH & MESH HIERARCHY
+- Lighting & Environment:
+  * THREE.AmbientLight(0xffffff, 0.65)
+  * THREE.DirectionalLight(0xffffff, 0.85) at position (2, 4, 3)
+  * THREE.GridHelper(2.2, 22, 0x334155, 0x1e293b) at y = -0.02
+- Static Base Assembly:
+  * baseMesh: Extruded 6-vertex polygon (createHexPlate(B_eng, 0.025, 0x334155)) at y = -0.025.
+  * 6 Base Joint Spheres: THREE.SphereGeometry(0.022, 16, 16) with shared material jointMat (0x94a3b8), positioned at engToThree(B_eng[i]).
+- Moving Platform Assembly (topGroup):
+  * topPlateMesh: Extruded 6-vertex polygon (createHexPlate(a_local, 0.022, 0x2563eb)) added to topGroup.
+  * topJointSpheres[0..5]: 6 sphere meshes added as children of topGroup at local positions engToThree(a_local[i]).
+- 6 Telescoping Leg Assemblies (legs[0..5]):
+  * legs[i].group: Positioned at B3 = engToThree(B_eng[i]) and oriented via quaternion.setFromUnitVectors(upAxis, dir).
+  * legs[i].outer: CylinderGeometry(0.018, 0.018, 0.26, 16) at local y = 0.13 (fixed barrel length 0.26 m).
+  * legs[i].inner: CylinderGeometry(0.011, 0.011, 1.0, 16) scaled dynamically via inner.scale.set(1, len, 1) and inner.position.y = len * 0.5.
+- 3D Vector & Moment Indicators:
+  * greenArrows[0..5]: 6 arrow groups (createArrowMesh(0x22c55e)) offset radially by 0.048 m from leg midpoints (0.52 * L3), oriented along +dir (compression, fi >= 0) or -dir (tension, fi < 0), with shaft length clamped to [0.06, 0.38] m via absF * 0.00028.
+  * redForceArrow: Arrow group (createArrowMesh(0xef4444)) positioned at topCenter + (0, 0.03, 0), visible when ||F|| > 10 N, oriented along engToThree([Fx, Fy, Fz]), with length clamped to [0.1, 0.42] m via Fmag * 0.00018.
+  * momentRing: THREE.TorusGeometry(0.18, 0.008, 12, 36, PI * 1.45) at topCenter + (0, 0.04, 0), visible when hypot(Mx, My) > 15 N*m, rotated via rotation.set(PI/2 + My*0.0012, 0, -Mx*0.0012).
+
+2.4 KINEMATICS, STATICS & DYNAMICS EQUATIONS (FRAME-BY-FRAME PIPELINE)
+Each frame (t += 0.016), animate() executes the following pipeline:
+1. Net External Wrench Assembly:
+   - Reads slider inputs and adds exponentially decaying shockWrench (decayed by 0.9x per frame):
+     Fx = parseFloat(sFx.value) + shockWrench[0]
+     Fy = shockWrench[1]
+     Fz = parseFloat(sFz.value) + shockWrench[2]
+     Mx = parseFloat(sMx.value) + shockWrench[3]
+     My = parseFloat(sMy.value) + shockWrench[4]
+     Mz = shockWrench[5]
+2. Heuristic Compliant Pose Filter (Uncoupled 2nd-Order Spring-Damper):
+   - Computes target deflection vector:
+     targetPose = [Fx * 0.00008, Fy * 0.00008, Fz * 0.000035, Mx * 0.00045, My * 0.00045, Mz * 0.0004]
+   - Integrates state vectors pose[0..5] and vel[0..5] (stiffness gain = 140, damping gain = 16, dt = 0.016):
+     acc = 140 * (targetPose[k] - pose[k]) - 16 * vel[k]
+     vel[k] += acc * 0.016
+     pose[k] += vel[k] * 0.016
+3. Platform Visual Transform vs. Leg Endpoint Kinematics (and V1 Discrepancy):
+   - Platform center in Engineering frame: P_eng = [pose[0], pose[1], Z0 + pose[2]].
+   - topGroup visual update:
+     topGroup.position.copy(engToThree(P_eng))
+     topGroup.rotation.set(pose[3], -pose[5], pose[4])  // Intrinsic XYZ Euler in Three.js frame
+   - Leg attachment point computation in Engineering frame via rotVec(v, rx, ry, rz) (Extrinsic X -> Y -> Z rotation in Engineering frame):
+     ra = rotVec(a_local[i], pose[3], pose[4], pose[5])
+     Ai = P_eng + ra
+   - Architectural Note on V1 Bug: Because +Y_eng maps to -Z_three, rotating by +pose[4] (+ry) around +Z_three in topGroup.rotation.set(pose[3], -pose[5], pose[4]) rotates the visual plate in the opposite pitch direction (-ry_eng) compared to rotVec(), causing topJointSpheres and leg endpoints A_world_eng[i] to diverge under non-zero pitch/roll/yaw.
+4. 6x6 Statics Matrix Assembly (Jacobian Transpose J^-T) & Gaussian Elimination:
+   - For each leg i = 0..5:
+     Li = Ai - B_eng[i]
+     len = hypot(Li[0], Li[1], Li[2])
+     ui = Li / len
+     mi = ra x ui = [ra[1]*ui[2] - ra[2]*ui[1], ra[2]*ui[0] - ra[0]*ui[2], ra[0]*ui[1] - ra[1]*ui[0]]
+   - Populates column i of 6x6 matrix J_invT:
+     J_invT[0..2][i] = ui[0..2]
+     J_invT[3..5][i] = mi[0..2]
+   - Solves linear system J_invT * f_legs = [-Fx, -Fy, -Fz, -Mx, -My, -Mz]^T via solve6x6(J_invT, W_counter) using Gaussian elimination with partial column pivoting (pivot fallback 1e-9).
+
+2.5 DOM ELEMENT CONTRACT (INPUTS, OUTPUTS & EVENT HANDLERS)
+- Range Inputs & Value Labels:
+  * #s-fz (range, min="-2500", max="0", step="25", value="-1200") -> updates #v-fz ("-1200 N")
+  * #s-fx (range, min="-800", max="800", step="20", value="350") -> updates #v-fx ("350 N")
+  * #s-my (range, min="-450", max="450", step="10", value="220") -> updates #v-my ("220 N·m")
+  * #s-mx (range, min="-450", max="450", step="10", value="0") -> updates #v-mx ("0 N·m")
+- Action Buttons:
+  * #btn-shock: Sets shockWrench = [600, -400, -1600, 320, -350, 0].
+  * #btn-circle: Toggles boolean autoCircle; when active, overrides sFx = 550*cos(2.2*t), sMy = 320*sin(2.2*t), sMx = 320*cos(2.2*t).
+  * #btn-reset: Sets sFz = -1200, sFx = 0, sMy = 0, sMx = 0, autoCircle = false.
+- Telemetry Outputs (#telemetry container):
+  * #bar-0 through #bar-5: Width set to pct = min(50, (|fi| / 1600) * 50)%; left = '50%' (#22c55e) for fi >= 0, or left = '${50 - pct}%' (#38bdf8) for fi < 0.
+  * #txt-0 through #txt-5: Displays signed integer Newton readout + badge (.push "PUSH" for fi >= 0, .pull "PULL" for fi < 0).
+
+2.6 STATE VARIABLES, CONSTANTS & EDGE-CASE / FAILURE BEHAVIOR
+- Camera Orbit State: camTheta = 0.65 rad, camPhi = 1.05 rad (clamped to [0.25, 1.48] rad), camRadius = 1.65 m (clamped to [0.9, 3.0] m), target lookAt = (0, 0.22, 0).
+- Singularity Guard: solve6x6 guards against zero pivots via const pivot = M[i][i] || 1e-9.
+- Structural Overload Handling in V1: None. Joint materials remain static (0x94a3b8), and telemetry bars clamp visually at 50% width when |fi| >= 1,600 N.

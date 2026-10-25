@@ -1,0 +1,62 @@
+CORE DIFFERENCES BETWEEN STEWART PLATFORM SIMULATOR V1 AND V2
+Audience: Written for both Everyday Readers (Layperson Summary) and AI Agents / Engineers (Code & Math Diff)
+
+========================================================================
+PART 1: LAYPERSON SUMMARY (WHAT CHANGED FROM V1 TO V2 AND WHY)
+========================================================================
+
+1. FIXING THE BROKEN / FLOATING JOINTS BUG
+- In Version 1 (v1): When you tilted the platform (especially using the Pitch slider M_y), the blue top plate tilted in the opposite direction of where the 6 metal legs were pointing. As a result, the legs visibly detached from the ball joints and floated in mid-air.
+- In Version 2 (v2): The math that rotates the 3D blue top plate and the math that calculates where the 6 legs attach were unified into a single, exact formula. In addition, metal sockets and collars were added to the ends of every leg. Now, all 12 joints stay 100% locked together at all times with zero gap (0.000 mm error), no matter how hard you push or tilt the platform.
+
+2. UPGRADING FROM "FAKE TILT" TO REAL-WORLD PHYSICS
+- In Version 1 (v1): The platform's movement was faked by multiplying each slider value by a fixed number. Pushing sideways only moved the plate sideways, ignoring how angled legs on a real hexapod naturally cause slight coupled tilts and height changes.
+- In Version 2 (v2): The platform now runs a real-world physics engine 8 times per video frame. The top plate has real weight and inertia (38 kg), and each of the 6 legs acts like a real hydraulic shock absorber with spring stiffness, damping, and physical stroke limits.
+
+3. ADDING JOINT SNAP DETECTION AND RED FAILURE HIGHLIGHTS
+- In Version 1 (v1): There was no concept of a breaking point or maximum safe load. You could crank the forces as high as you wanted and the joints always looked identical.
+- In Version 2 (v2): A "Joint Snap Limit (F_max)" slider and a "Test Joint Snap" button were added. While the joints remain physically connected on screen so the model stays intact, any leg whose load crosses the snap limit lights up in pulsing red at both its top and bottom ball joints, its collars, and its sidebar meter—showing you the exact joint that would snap under that load, along with the live Safety Factor (SF).
+
+4. FULL 6-DIRECTION CONTROLS AND CLEANER 3D VIEW
+- In Version 1 (v1): Only 4 load sliders existed (Vertical F_z, Sideways F_x, Pitch M_y, Roll M_x), and the 3D view was cluttered with 6 floating green arrows, a large red arrow, and a red ring.
+- In Version 2 (v2): All floating 3D arrows and rings were removed so you can clearly see the mechanical legs and glowing joints. Two missing load sliders—Forward/Back Shear (F_y) and Yaw Twisting Torque (M_z)—were also added so you can test all 6 degrees of freedom.
+
+
+========================================================================
+PART 2: AI AGENT & ENGINEER DIFF (EXACT TECHNICAL & CODE CHANGES)
+========================================================================
+
+1. ROTATION MATRIX SYNCHRONIZATION (FIXING THE V1 DISCONNECTION BUG)
+- Root Cause in v1:
+  * In v1, leg endpoints A_world_eng[i] were computed using rotVec(v, rx, ry, rz), which applied extrinsic X -> Y -> Z rotations in Engineering coordinates (X-right, Y-forward, Z-up).
+  * However, the Three.js mesh group topGroup was rotated via topGroup.rotation.set(pose[3], -pose[5], pose[4]), which used Three.js intrinsic 'XYZ' Euler order AND applied +pose[4] (+ry) around Three.js +Z (-Y_eng), inverting the pitch angle sign! Consequently, topJointSpheres moved to different 3D coordinates than A_world_eng[i].
+- Fix in v2:
+  * Introduced getRotationMatrixEng(rx, ry, rz) to construct the exact 3x3 rotation matrix R_eng = Rz(rz) * Ry(ry) * Rx(rx).
+  * Disabled topGroup.matrixAutoUpdate and added setTopGroupTransform(P_eng, R_eng), which applies the exact coordinate-frame similarity transformation R_three = T * R_eng * T^T (where T maps [x, y, z]_eng -> [x, z, -y]_three) directly into topGroup.matrix via THREE.Matrix4.
+  * Positioned topJoints[i].sphere and legs[i] directly at A3 = engToThree(state.A_world_eng[i]), guaranteeing 0.000 mm geometric discrepancy between the top plate, ball joints, sockets, collars, and piston rods.
+
+2. PHYSICS SOLVER: HEURISTIC TARGET POSE (V1) VS. SUB-STEPPED JACOBIAN DYNAMICS (V2)
+- In v1:
+  * Used an uncoupled linear scaling targetPose = [Fx*0.00008, Fy*0.00008, Fz*0.000035, Mx*0.00045, My*0.00045, Mz*0.0004] with a simple 1-step filter (acc = 140*(targetPose - pose) - 16*vel).
+  * The 6x6 Jacobian transpose J_invT was only used after pose update to display static leg forces, having zero effect on platform motion.
+- In v2:
+  * Implemented evaluateHexapodState(q, dq) inside an 8-substep per frame physics loop (dt = 0.002 s).
+  * Computes each leg's instantaneous length len, unit vector ui, moment arm mi = ra x ui, and axial velocity dl_dt = ui . v_P + mi . omega.
+  * Computes physical actuator axial force fi = -K_ACTUATOR * (len - L0_legs[i]) - C_ACTUATOR * dl_dt (with K_ACTUATOR = 38000 N/m, C_ACTUATOR = 1650 N*s/m) plus 250,000 N/m hard-stop penalties beyond [STROKE_MIN = 0.30 m, STROKE_MAX = 0.62 m].
+  * Projects actuator forces back into platform accelerations via the live Jacobian transpose: W_net = W_ext + J^T * f_legs, integrating acc_k = W_net[k] / MASS_INITIAL[k] - 4.5 * vel[k].
+
+3. STRUCTURAL OVERLOAD & JOINT SNAP STATE MACHINE (NEW IN V2)
+- In v1:
+  * Joint spheres shared a single static material (jointMat) with fixed color 0x94a3b8. No overload threshold existed.
+- In v2:
+  * Each base joint (baseJoints[0..5]), platform joint (topJoints[0..5]), and leg collar (legs[0..5].collarMat) has its own independent THREE.MeshStandardMaterial plus a double-sided red failure ring mesh (haloGeo / haloMat).
+  * Added slider #s-fmax (600 N to 2000 N, default 1100 N) and preset button #btn-overload ("Test Joint Snap").
+  * Per-frame evaluation classifies each leg i into Nominal (< 0.82 * Fmax), Warning (0.82 * Fmax to Fmax, colored 0xf59e0b amber), or Snapped (>= Fmax, pulsing 0xef4444 red emissive glow, 1.22x sphere scale, 0.85 opacity failure halo, and #status-banner.snap alert with live Safety Factor SF = Fmax / maxAbsForce).
+
+4. 3D SCENE & UI CONTROL CHANGES (V1 VS. V2)
+- Removed in v2:
+  * createArrowMesh(), greenArrows[0..5], redForceArrow, and momentRing (all 3D vector/arrow meshes removed per user specification for an unobstructed view of the hexapod and joints).
+- Added in v2:
+  * New 6-DOF sliders: #s-fy (Lateral Shear F_y, -1200 to 1200 N), #s-mz (Yaw Torque M_z, -450 to 450 N*m), and #s-fmax (Joint Snap Limit F_max, 600 to 2000 N).
+  * New HUD overlays: #status-banner (Nominal / Warning / Snap Failure state + Peak Force & Safety Factor) and #kin-hud (live dZ in mm, dX/Y in mm, Tilt in degrees, and Joint Gap Error: 0.000 mm).
+  * Telemetry bar limit markers (#lim-pos-0..5, #lim-neg-0..5) and dynamic badges (PUSH, PULL, WARN, SNAP!).
